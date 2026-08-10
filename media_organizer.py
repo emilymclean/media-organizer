@@ -19,13 +19,18 @@ provider is included; add more providers by subclassing MetadataProvider
 and registering them in PROVIDERS.
 
 Usage:
-    python media_organizer.py m <mega_link> <tvdb_id>
-    python media_organizer.py s <mega_link> <tvdb_id>
+    python media_organizer.py m <tvdb_id> <mega_link> [<mega_link> ...]
+    python media_organizer.py s <tvdb_id> <mega_link> [<mega_link> ...]
 
-    <mega_link> does not need to be a raw URL. If it isn't already a valid
-    http(s) URL, the script will try base64-decoding it (up to 5 times,
-    since it's sometimes wrapped in base64 more than once) until it finds
-    one, or give up and error out.
+    Provide more than one <mega_link> when a show's episodes are split
+    across multiple Mega links/folders -- they're all downloaded into the
+    same source pool before organising, so episodes from any of them get
+    matched up correctly.
+
+    Each <mega_link> does not need to be a raw URL. If it isn't already a
+    valid http(s) URL, the script will try base64-decoding it (up to 5
+    times, since it's sometimes wrapped in base64 more than once) until
+    it finds one, or give up and error out.
 
 Environment:
     TVDB_API_KEY   Required for the TVDB provider.
@@ -317,13 +322,15 @@ def mega_logout() -> None:
     _run_mega_cmd(["mega-logout"], check=False)
 
 
-def download_from_mega(link: str, dest_dir: Path,
+def download_from_mega(links: list[str], dest_dir: Path,
                         email: Optional[str] = None,
                         password: Optional[str] = None) -> Path:
-    """Download a file or folder from a Mega.nz link into dest_dir using
-    the MEGAcmd client (mega-get), which talks to the mega-cmd-server
-    background process. Returns dest_dir (files may be nested inside it
-    if the link pointed to a folder)."""
+    """Download one or more Mega.nz links (file or folder) into dest_dir
+    using the MEGAcmd client (mega-get), which talks to the
+    mega-cmd-server background process. All links land in the same
+    dest_dir, so this is how a show split across multiple Mega links can
+    be stacked into a single set of source files before organising.
+    Returns dest_dir."""
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     logged_in = False
@@ -332,10 +339,11 @@ def download_from_mega(link: str, dest_dir: Path,
             mega_login(email, password)
             logged_in = True
 
-        print(f"Downloading from Mega: {link}")
-        # mega-get handles both single-file and folder links, downloading
-        # recursively into dest_dir.
-        _run_mega_cmd(["mega-get", link, str(dest_dir)])
+        for index, link in enumerate(links, start=1):
+            print(f"Downloading from Mega ({index}/{len(links)}): {link}")
+            # mega-get handles both single-file and folder links, downloading
+            # recursively into dest_dir.
+            _run_mega_cmd(["mega-get", link, str(dest_dir)])
     finally:
         if logged_in:
             mega_logout()
@@ -474,8 +482,15 @@ def parse_args(argv=None) -> argparse.Namespace:
         "mode", choices=["m", "s"],
         help="'m' for movie, 's' for show"
     )
-    parser.add_argument("mega_link", help="Mega.nz file or folder link")
     parser.add_argument("id", help="Metadata ID to look up (e.g. TVDB id)")
+    parser.add_argument(
+        "mega_links", nargs="+",
+        help="One or more Mega.nz file/folder links (space-separated). "
+             "Provide more than one when a show's episodes are split "
+             "across multiple Mega links -- all of them are downloaded "
+             "into the same source pool before organising. Each link may "
+             "also be base64-encoded (see module docstring)."
+    )
 
     parser.add_argument(
         "--provider", default="tvdb", choices=list(PROVIDERS.keys()),
@@ -523,18 +538,27 @@ def main(argv=None) -> int:
 
     provider = build_provider(args)
 
-    try:
-        mega_link = resolve_link(args.mega_link)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+    mega_links = []
+    resolve_errors = []
+    for raw_link in args.mega_links:
+        try:
+            resolved = resolve_link(raw_link)
+        except ValueError as exc:
+            resolve_errors.append(str(exc))
+            continue
+        if resolved != raw_link:
+            print(f"Resolved link: {resolved}")
+        mega_links.append(resolved)
+
+    if resolve_errors:
+        for err in resolve_errors:
+            print(f"Error: {err}", file=sys.stderr)
         return 1
-    if mega_link != args.mega_link:
-        print(f"Resolved link: {mega_link}")
 
     with tempfile.TemporaryDirectory(prefix="media_dl_") as tmp:
         tmp_path = Path(tmp)
         download_from_mega(
-            mega_link, tmp_path,
+            mega_links, tmp_path,
             email=args.mega_email, password=args.mega_password,
         )
 

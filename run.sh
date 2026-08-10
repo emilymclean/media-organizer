@@ -3,11 +3,16 @@
 # run.sh - build (if needed) and run the media-organizer container.
 #
 # Usage:
-#   ./run.sh <m|s> <mega_link> <tvdb_id> [extra media_organizer.py args]
+#   ./run.sh <m|s> <tvdb_id> <mega_link> [<mega_link> ...]
+#
+# Provide more than one mega_link when a show's episodes are split across
+# multiple Mega links/folders -- they're all downloaded and pooled together
+# before organising.
 #
 # Examples:
-#   ./run.sh m 'https://mega.nz/file/xxxxx#yyyyy' 12345
-#   ./run.sh s 'https://mega.nz/folder/xxxxx#yyyyy' 78910
+#   ./run.sh m 12345 'https://mega.nz/file/xxxxx#yyyyy'
+#   ./run.sh s 78910 'https://mega.nz/folder/xxxxx#yyyyy'
+#   ./run.sh s 78910 'https://mega.nz/folder/aaa#bbb' 'https://mega.nz/folder/ccc#ddd'
 #
 # Configuration (env vars, or put them in a .env file next to this script):
 #   TVDB_API_KEY      Required. Your TVDB v4 API key.
@@ -35,7 +40,7 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
 fi
 
 if [[ $# -lt 3 ]]; then
-    echo "Usage: $0 <m|s> <mega_link> <tvdb_id> [extra media_organizer.py args]" >&2
+    echo "Usage: $0 <m|s> <tvdb_id> <mega_link> [<mega_link> ...]" >&2
     exit 1
 fi
 
