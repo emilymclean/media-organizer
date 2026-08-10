@@ -22,6 +22,11 @@ Usage:
     python media_organizer.py m <mega_link> <tvdb_id>
     python media_organizer.py s <mega_link> <tvdb_id>
 
+    <mega_link> does not need to be a raw URL. If it isn't already a valid
+    http(s) URL, the script will try base64-decoding it (up to 5 times,
+    since it's sometimes wrapped in base64 more than once) until it finds
+    one, or give up and error out.
+
 Environment:
     TVDB_API_KEY   Required for the TVDB provider.
     TVDB_PIN       Optional, only needed for TVDB "subscriber" API keys.
@@ -48,6 +53,8 @@ Note on Mega downloading:
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import os
 import re
 import shutil
@@ -58,6 +65,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 # --------------------------------------------------------------------------
 # Constants
@@ -195,6 +203,74 @@ def _first_translated_name(data: dict) -> str:
 PROVIDERS = {
     "tvdb": TVDBProvider,
 }
+
+
+# --------------------------------------------------------------------------
+# Link resolution (handles links that arrive base64-encoded)
+# --------------------------------------------------------------------------
+
+MAX_BASE64_DECODE_ATTEMPTS = 5
+
+
+def is_valid_url(candidate: str) -> bool:
+    parsed = urlparse(candidate)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _try_base64_decode(candidate: str) -> Optional[str]:
+    """Attempt to base64-decode candidate (standard or URL-safe alphabet,
+    tolerant of missing padding). Returns the decoded string, or None if
+    it isn't valid base64 / doesn't decode to text."""
+    stripped = candidate.strip()
+    # Re-pad if needed; base64 length must be a multiple of 4.
+    padded = stripped + ("=" * (-len(stripped) % 4))
+
+    decoders = (
+        lambda s: base64.b64decode(s, validate=True),
+        lambda s: base64.urlsafe_b64decode(s),
+    )
+    for decoder in decoders:
+        try:
+            decoded_bytes = decoder(padded)
+        except (binascii.Error, ValueError):
+            continue
+        try:
+            return decoded_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def resolve_link(raw_link: str, max_attempts: int = MAX_BASE64_DECODE_ATTEMPTS) -> str:
+    """Return raw_link as-is if it's already a valid URL. Otherwise, try
+    base64-decoding it repeatedly (up to max_attempts times, since links
+    are sometimes double-encoded) until a valid URL appears.
+
+    Raises ValueError if no valid URL is found within the attempt budget.
+    """
+    candidate = raw_link.strip()
+
+    if is_valid_url(candidate):
+        return candidate
+
+    for attempt in range(1, max_attempts + 1):
+        decoded = _try_base64_decode(candidate)
+        if decoded is None:
+            break
+
+        decoded = decoded.strip()
+        print(f"  Decoded base64 layer {attempt}: {decoded[:80]}"
+              f"{'...' if len(decoded) > 80 else ''}")
+
+        if is_valid_url(decoded):
+            return decoded
+
+        candidate = decoded
+
+    raise ValueError(
+        f"'{raw_link}' is not a valid URL and could not be resolved to one "
+        f"after up to {max_attempts} base64 decode attempt(s)."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -447,10 +523,18 @@ def main(argv=None) -> int:
 
     provider = build_provider(args)
 
+    try:
+        mega_link = resolve_link(args.mega_link)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    if mega_link != args.mega_link:
+        print(f"Resolved link: {mega_link}")
+
     with tempfile.TemporaryDirectory(prefix="media_dl_") as tmp:
         tmp_path = Path(tmp)
         download_from_mega(
-            args.mega_link, tmp_path,
+            mega_link, tmp_path,
             email=args.mega_email, password=args.mega_password,
         )
 
