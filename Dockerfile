@@ -8,17 +8,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # --- Install MEGAcmd from MEGA's official apt repo ------------------------
 # (python:3.11-slim-bookworm is Debian 12, hence the Debian_12 repo path)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        wget gnupg ca-certificates \
-    && mkdir -p /etc/apt/keyrings \
-    && wget -qO- https://mega.nz/keys/MEGA_signing.key \
-        | gpg --dearmor -o /etc/apt/keyrings/mega.nz.gpg \
-    && echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mega.nz.gpg] https://mega.nz/linux/repo/Debian_12/ ./" \
-        > /etc/apt/sources.list.d/mega.nz.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends megacmd \
-    && apt-get purge -y wget gnupg \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/*
+        wget gnupg ca-certificates 
+RUN mkdir -p /etc/apt/keyrings 
+RUN wget -qO- https://mega.nz/keys/MEGA_signing.key \
+        | gpg --dearmor -o /etc/apt/keyrings/mega.nz.gpg 
+RUN echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/mega.nz.gpg] https://mega.nz/linux/repo/Debian_12/ ./" \
+        > /etc/apt/sources.list.d/mega.nz.list 
+RUN apt-get update 
+RUN apt-get install -y --no-install-recommends megacmd 
+RUN rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
