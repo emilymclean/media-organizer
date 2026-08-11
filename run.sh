@@ -23,8 +23,6 @@
 #                     across runs (requires MEGA_CONFIG_DIR to persist).
 #   LIBRARY_DIR       Optional. Host directory organised media is written to.
 #                     Default: ./library
-#   MEGA_CONFIG_DIR   Optional. Host directory for MEGAcmd session/config
-#                     persistence. Default: ./mega-config
 #   IMAGE_NAME        Optional. Docker image tag. Default: media-organizer
 #
 set -euo pipefail
@@ -66,6 +64,5 @@ docker run --rm -it \
     -e TVDB_API_KEY="${TVDB_API_KEY:-}" \
     -e TVDB_PIN="${TVDB_PIN:-}" \
     -v "$LIBRARY_DIR:/library" \
-    -v "$MEGA_CONFIG_DIR:/config" \
     "$IMAGE_NAME" \
     "$@" --library-root /library
