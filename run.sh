@@ -19,8 +19,6 @@
 #   TVDB_PIN          Optional. TVDB subscriber PIN.
 #   MEGA_EMAIL        Optional. MEGA account email (else anonymous downloads).
 #   MEGA_PASSWORD     Optional. MEGA account password.
-#   MEGA_KEEP_SESSION Optional. "true" to keep the MEGAcmd session logged in
-#                     across runs (requires MEGA_CONFIG_DIR to persist).
 #   LIBRARY_DIR       Optional. Host directory organised media is written to.
 #                     Default: ./library
 #   IMAGE_NAME        Optional. Docker image tag. Default: media-organizer
@@ -44,9 +42,8 @@ fi
 
 IMAGE_NAME="${IMAGE_NAME:-media-organizer}"
 LIBRARY_DIR="${LIBRARY_DIR:-$SCRIPT_DIR/library}"
-MEGA_CONFIG_DIR="${MEGA_CONFIG_DIR:-$SCRIPT_DIR/mega-config}"
 
-mkdir -p "$LIBRARY_DIR" "$MEGA_CONFIG_DIR"
+mkdir -p "$LIBRARY_DIR"
 
 if [[ -z "${TVDB_API_KEY:-}" ]]; then
     echo "Warning: TVDB_API_KEY is not set (env var or .env file)." >&2
@@ -60,7 +57,6 @@ echo "Running container..."
 docker run --rm -it \
     -e MEGA_EMAIL="${MEGA_EMAIL:-}" \
     -e MEGA_PASSWORD="${MEGA_PASSWORD:-}" \
-    -e MEGA_KEEP_SESSION="${MEGA_KEEP_SESSION:-false}" \
     -e TVDB_API_KEY="${TVDB_API_KEY:-}" \
     -e TVDB_PIN="${TVDB_PIN:-}" \
     -v "$LIBRARY_DIR:/library" \
