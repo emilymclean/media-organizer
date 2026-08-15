@@ -57,6 +57,6 @@ docker run --rm -it \
     -e TVDB_API_KEY="${TVDB_API_KEY:-}" \
     -e TVDB_PIN="${TVDB_PIN:-}" \
     -v "$LIBRARY_DIR:/library" \
-    -v "$CSV_FILE:/input/media.csv:ro" \
+    -v "$CSV_FILE:/input/media.csv" \
     "$IMAGE_NAME" \
     --csv /input/media.csv --library-root /library

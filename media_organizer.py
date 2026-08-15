@@ -72,11 +72,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from urllib.parse import urlparse
+import pandas
+from pandas import DataFrame
 
 # --------------------------------------------------------------------------
 # Constants
@@ -101,6 +104,13 @@ def sanitize(name: str) -> str:
 # --------------------------------------------------------------------------
 # Metadata layer
 # --------------------------------------------------------------------------
+
+@dataclass
+class MediaRequest:
+    type: str
+    provider_id: str
+    mega_links: List[str]
+
 
 @dataclass
 class MovieMetadata:
@@ -285,6 +295,93 @@ def resolve_link(raw_link: str, max_attempts: int = MAX_BASE64_DECODE_ATTEMPTS) 
 
 
 # --------------------------------------------------------------------------
+# Candidate Provider
+# --------------------------------------------------------------------------
+def media_request_from_dataframe(row: dict) -> MediaRequest:
+    return MediaRequest(
+        type=row["mode"],
+        provider_id=row["id"],
+        mega_links=list(map(lambda x: resolve_link(x.strip()), row["mega_links"].split(",")))
+    )
+
+
+class CandidateProvider(ABC):
+
+    def looping(self) -> bool:
+        pass
+
+    def list_candidates(self) -> List[MediaRequest]:
+        pass
+
+    def remove_candidate(self, candidate: MediaRequest):
+        pass
+
+    def refresh_candidates(self):
+        pass
+
+
+class CsvCandidateProvider(CandidateProvider):
+    file_name: str
+    df: DataFrame
+
+    def __init__(self, file_name: str):
+        self.file_name = file_name
+        self._setup_files()
+        self.refresh_candidates()
+
+    def looping(self) -> bool:
+        return True
+
+    def list_candidates(self) -> List[MediaRequest]:
+        self.refresh_candidates()
+        return [media_request_from_dataframe(row) for row in self.df.to_dict(orient="records")]
+
+    def remove_candidate(self, candidate: MediaRequest):
+        removed = self.df[self.df["mega_links"] == candidate.mega_links]
+        self.df = pandas.concat([self.df, removed], ignore_index=True).drop_duplicates(keep=False)
+
+        with open(self.file_name, "w") as f:
+            f.write(self.df.to_csv(index=False))
+
+    def refresh_candidates(self):
+        dtype = {
+            'mode': 'string',
+            'id': 'string',
+            'mega_links': 'string'
+        }
+
+        self.df = pandas.read_csv(self.file_name, header=0, dtype=dtype)
+
+    def _setup_files(self):
+        dummy_file = "mode,id,mega_links"
+        if not os.path.exists(self.file_name):
+            with open(self.file_name, "w") as f:
+                f.write(dummy_file)
+
+
+class ArgsCandidateProvider(CandidateProvider):
+
+    def __init__(self, args: argparse.Namespace):
+        self.args = args
+
+    def looping(self) -> bool:
+        return False
+
+    def list_candidates(self) -> List[MediaRequest]:
+        return [MediaRequest(
+            type=self.args.mode,
+            provider_id=self.args.id,
+            mega_links=self.args.mega_links
+        )]
+
+    def remove_candidate(self, candidate: MediaRequest):
+        pass
+
+    def refresh_candidates(self):
+        pass
+
+
+# --------------------------------------------------------------------------
 # Mega download layer (via MEGAcmd / mega-cmd-server)
 # --------------------------------------------------------------------------
 
@@ -328,9 +425,7 @@ def mega_logout() -> None:
     _run_mega_cmd(["mega-logout"], check=False)
 
 
-def download_from_mega(links: list[str], dest_dir: Path,
-                        email: Optional[str] = None,
-                        password: Optional[str] = None) -> Path:
+def download_from_mega(links: list[str], dest_dir: Path) -> Path:
     """Download one or more Mega.nz links (file or folder) into dest_dir
     using the MEGAcmd client (mega-get), which talks to the
     mega-cmd-server background process. All links land in the same
@@ -338,21 +433,11 @@ def download_from_mega(links: list[str], dest_dir: Path,
     be stacked into a single set of source files before organising.
     Returns dest_dir."""
     dest_dir.mkdir(parents=True, exist_ok=True)
-
-    logged_in = False
-    try:
-        if email and password:
-            mega_login(email, password)
-            logged_in = True
-
-        for index, link in enumerate(links, start=1):
-            print(f"Downloading from Mega ({index}/{len(links)}): {link}")
-            # mega-get handles both single-file and folder links, downloading
-            # recursively into dest_dir.
-            _run_mega_cmd(["mega-get", link, str(dest_dir)])
-    finally:
-        if logged_in:
-            mega_logout()
+    for index, link in enumerate(links, start=1):
+        print(f"Downloading from Mega ({index}/{len(links)}): {link}")
+        # mega-get handles both single-file and folder links, downloading
+        # recursively into dest_dir.
+        _run_mega_cmd(["mega-get", link, str(dest_dir)])
 
     return dest_dir
 
@@ -595,67 +680,73 @@ def build_provider(args: argparse.Namespace) -> MetadataProvider:
     return provider_cls()
 
 
+def fetch(
+        request: MediaRequest,
+        provider: MetadataProvider,
+        library_root: Path,
+        keep_download: bool = False,
+):
+    with tempfile.TemporaryDirectory(prefix="media_dl_") as tmp:
+        tmp_path = Path(tmp)
+        download_from_mega(request.mega_links, tmp_path)
+
+        video_files = find_video_files(tmp_path)
+        if not video_files:
+            print("No video files were found in the downloaded content.", file=sys.stderr)
+            return
+
+        print(f"\nFound {len(video_files)} video file(s). Fetching metadata...")
+
+        if request.type == "m":
+            movie = provider.get_movie(request.provider_id)
+            print(f"Movie: {movie.title} ({movie.year}) [tvdbid-{movie.provider_id}]")
+            dest = organise_movie(video_files, movie, library_root)
+        else:
+            show = provider.get_show(request.provider_id)
+            print(f"Show: {show.title} ({show.year}) [tvdbid-{show.provider_id}] "
+                  f"- {len(show.episodes)} episode(s) in metadata")
+            dest = organise_show(video_files, show, library_root)
+
+        if keep_download:
+            keep_path = library_root / f"_raw_download_{Path(tmp).name}"
+            shutil.copytree(tmp_path, keep_path)
+            print(f"\nRaw download copy kept at: {keep_path}")
+
+    print(f"\nDone. Organised into: {dest}")
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     library_root = Path(args.library_root).expanduser().resolve()
     library_root.mkdir(parents=True, exist_ok=True)
 
-    provider = build_provider(args)
+    metadata_provider = build_provider(args)
+    candidate_provider = ArgsCandidateProvider(args)
 
     if args.csv_path:
-        try:
-            requests = load_csv_requests(args.csv_path)
-        except ValueError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            return 1
-    else:
-        requests = [(args.mode, args.id, args.mega_links)]
+        candidate_provider = CsvCandidateProvider(args.csv_path)
 
-    for request_number, (mode, metadata_id, raw_links) in enumerate(requests, start=1):
-        if len(requests) > 1:
-            print(f"\n=== CSV request {request_number}/{len(requests)} ===")
+    loggedIn = False
+    if args.mega_email and args.mega_password:
+        mega_login(args.mega_email, args.mega_password)
 
-        mega_links = []
-        for raw_link in raw_links:
-            try:
-                resolved = resolve_link(raw_link)
-            except ValueError as exc:
-                print(f"Error: {exc}", file=sys.stderr)
-                return 1
-            if resolved != raw_link:
-                print(f"Resolved link: {resolved}")
-            mega_links.append(resolved)
+    try:
+        while True:
+            candidates = candidate_provider.list_candidates()
 
-        with tempfile.TemporaryDirectory(prefix="media_dl_") as tmp:
-            tmp_path = Path(tmp)
-            download_from_mega(
-                mega_links, tmp_path,
-                email=args.mega_email, password=args.mega_password,
-            )
+            for candidate in candidates:
+                fetch(candidate, metadata_provider, library_root, keep_download=args.keep_download)
+                candidate_provider.remove_candidate(candidate)
 
-            video_files = find_video_files(tmp_path)
-            if not video_files:
-                print("No video files were found in the downloaded content.", file=sys.stderr)
-                return 1
+            if candidate_provider.looping():
+                print("No more candidates, sleeping for 60 seconds...")
+                time.sleep(60)
+                continue
+            break
+    finally:
+        if loggedIn:
+            mega_logout()
 
-            print(f"\nFound {len(video_files)} video file(s). Fetching metadata...")
-
-            if mode == "m":
-                movie = provider.get_movie(metadata_id)
-                print(f"Movie: {movie.title} ({movie.year}) [tvdbid-{movie.provider_id}]")
-                dest = organise_movie(video_files, movie, library_root)
-            else:
-                show = provider.get_show(metadata_id)
-                print(f"Show: {show.title} ({show.year}) [tvdbid-{show.provider_id}] "
-                      f"- {len(show.episodes)} episode(s) in metadata")
-                dest = organise_show(video_files, show, library_root)
-
-            if args.keep_download:
-                keep_path = library_root / f"_raw_download_{Path(tmp).name}"
-                shutil.copytree(tmp_path, keep_path)
-                print(f"\nRaw download copy kept at: {keep_path}")
-
-        print(f"\nDone. Organised into: {dest}")
     return 0
 
 
