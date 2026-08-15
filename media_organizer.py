@@ -21,11 +21,16 @@ and registering them in PROVIDERS.
 Usage:
     python media_organizer.py m <tvdb_id> <mega_link> [<mega_link> ...]
     python media_organizer.py s <tvdb_id> <mega_link> [<mega_link> ...]
+    python media_organizer.py --csv <csv_file>
 
     Provide more than one <mega_link> when a show's episodes are split
     across multiple Mega links/folders -- they're all downloaded into the
     same source pool before organising, so episodes from any of them get
     matched up correctly.
+
+    CSV files must have a header row with `mode`, `id`, and `mega_link`
+    columns. Use one row per link; rows with the same mode and id are
+    downloaded into the same source pool.
 
     Each <mega_link> does not need to be a raw URL. If it isn't already a
     valid http(s) URL, the script will try base64-decoding it (up to 5
@@ -60,6 +65,7 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import csv
 import os
 import re
 import shutil
@@ -408,6 +414,8 @@ def organise_movie(video_files: list[Path], movie: MovieMetadata, library_root: 
         raise RuntimeError("No video files found in the downloaded content.")
     # Assume the largest video file is the feature (extras/samples are usually smaller).
     main_video = max(video_files, key=lambda p: p.stat().st_size)
+    featurette_videos = video_files.copy()
+    featurette_videos.remove(main_video)
 
     root_name = build_movie_root_name(movie)
     movie_dir = library_root / root_name
@@ -416,6 +424,12 @@ def organise_movie(video_files: list[Path], movie: MovieMetadata, library_root: 
     dest_video = movie_dir / f"{root_name}{main_video.suffix.lower()}"
     shutil.move(str(main_video), str(dest_video))
     print(f"  Movie -> {dest_video}")
+
+    features_dir = library_root / root_name / "Featurettes"
+    for video in featurette_videos:
+        dest_feature = features_dir / video.name
+        shutil.move(str(video), str(dest_feature))
+        print(f"  Feature {video.name} -> {dest_feature}")
 
     sub = find_companion_subtitle(main_video)
     if sub and sub.exists():
@@ -479,17 +493,24 @@ def parse_args(argv=None) -> argparse.Namespace:
                     "standard media library structure."
     )
     parser.add_argument(
-        "mode", choices=["m", "s"],
+        "mode", choices=["m", "s"], nargs="?", default=None,
         help="'m' for movie, 's' for show"
     )
-    parser.add_argument("id", help="Metadata ID to look up (e.g. TVDB id)")
     parser.add_argument(
-        "mega_links", nargs="+",
+        "id", nargs="?", default=None,
+        help="Metadata ID to look up (e.g. TVDB id)"
+    )
+    parser.add_argument(
+        "mega_links", nargs="*",
         help="One or more Mega.nz file/folder links (space-separated). "
              "Provide more than one when a show's episodes are split "
              "across multiple Mega links -- all of them are downloaded "
              "into the same source pool before organising. Each link may "
              "also be base64-encoded (see module docstring)."
+    )
+    parser.add_argument(
+        "--csv", dest="csv_path", default=None, metavar="FILE",
+        help="Read batch requests from a CSV with mode,id,mega_link columns",
     )
 
     parser.add_argument(
@@ -521,7 +542,50 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Keep the raw downloaded files/temp dir after organising (for debugging)"
     )
 
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.csv_path and args.mega_links:
+        parser.error("--csv cannot be combined with positional Mega links")
+    if args.csv_path and (args.mode or args.id):
+        parser.error("--csv cannot be combined with positional mode or id")
+    if not args.csv_path and (not args.mode or not args.id or not args.mega_links):
+        parser.error("provide mode, metadata ID, and Mega links, or use --csv FILE")
+    return args
+
+
+def load_csv_requests(csv_path: str) -> list[tuple[str, str, list[str]]]:
+    """Load and group CSV rows as (mode, metadata_id, links) requests."""
+    requests: dict[tuple[str, str], list[str]] = {}
+    try:
+        csv_file = open(csv_path, "r", encoding="utf-8-sig", newline="")
+    except OSError as exc:
+        raise ValueError(f"Could not open CSV file '{csv_path}': {exc}") from exc
+
+    with csv_file:
+        reader = csv.DictReader(csv_file)
+        fieldnames = {field.strip() for field in (reader.fieldnames or []) if field}
+        required = {"mode", "id", "mega_link"}
+        missing = required - fieldnames
+        if missing:
+            missing_text = ", ".join(sorted(missing))
+            raise ValueError(f"CSV is missing required column(s): {missing_text}")
+
+        for row_number, row in enumerate(reader, start=2):
+            mode = (row.get("mode") or "").strip().lower()
+            metadata_id = (row.get("id") or "").strip()
+            link = (row.get("mega_link") or "").strip()
+            if not mode and not metadata_id and not link:
+                continue
+            if mode not in {"m", "s"}:
+                raise ValueError(f"CSV row {row_number}: mode must be 'm' or 's'")
+            if not metadata_id or not link:
+                raise ValueError(
+                    f"CSV row {row_number}: id and mega_link must not be empty"
+                )
+            requests.setdefault((mode, metadata_id), []).append(link)
+
+    if not requests:
+        raise ValueError("CSV contains no media requests")
+    return [(mode, metadata_id, links) for (mode, metadata_id), links in requests.items()]
 
 
 def build_provider(args: argparse.Namespace) -> MetadataProvider:
@@ -538,53 +602,60 @@ def main(argv=None) -> int:
 
     provider = build_provider(args)
 
-    mega_links = []
-    resolve_errors = []
-    for raw_link in args.mega_links:
+    if args.csv_path:
         try:
-            resolved = resolve_link(raw_link)
+            requests = load_csv_requests(args.csv_path)
         except ValueError as exc:
-            resolve_errors.append(str(exc))
-            continue
-        if resolved != raw_link:
-            print(f"Resolved link: {resolved}")
-        mega_links.append(resolved)
-
-    if resolve_errors:
-        for err in resolve_errors:
-            print(f"Error: {err}", file=sys.stderr)
-        return 1
-
-    with tempfile.TemporaryDirectory(prefix="media_dl_") as tmp:
-        tmp_path = Path(tmp)
-        download_from_mega(
-            mega_links, tmp_path,
-            email=args.mega_email, password=args.mega_password,
-        )
-
-        video_files = find_video_files(tmp_path)
-        if not video_files:
-            print("No video files were found in the downloaded content.", file=sys.stderr)
+            print(f"Error: {exc}", file=sys.stderr)
             return 1
+    else:
+        requests = [(args.mode, args.id, args.mega_links)]
 
-        print(f"\nFound {len(video_files)} video file(s). Fetching metadata...")
+    for request_number, (mode, metadata_id, raw_links) in enumerate(requests, start=1):
+        if len(requests) > 1:
+            print(f"\n=== CSV request {request_number}/{len(requests)} ===")
 
-        if args.mode == "m":
-            movie = provider.get_movie(args.id)
-            print(f"Movie: {movie.title} ({movie.year}) [tvdbid-{movie.provider_id}]")
-            dest = organise_movie(video_files, movie, library_root)
-        else:
-            show = provider.get_show(args.id)
-            print(f"Show: {show.title} ({show.year}) [tvdbid-{show.provider_id}] "
-                  f"- {len(show.episodes)} episode(s) in metadata")
-            dest = organise_show(video_files, show, library_root)
+        mega_links = []
+        for raw_link in raw_links:
+            try:
+                resolved = resolve_link(raw_link)
+            except ValueError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                return 1
+            if resolved != raw_link:
+                print(f"Resolved link: {resolved}")
+            mega_links.append(resolved)
 
-        if args.keep_download:
-            keep_path = library_root / f"_raw_download_{Path(tmp).name}"
-            shutil.copytree(tmp_path, keep_path)
-            print(f"\nRaw download copy kept at: {keep_path}")
+        with tempfile.TemporaryDirectory(prefix="media_dl_") as tmp:
+            tmp_path = Path(tmp)
+            download_from_mega(
+                mega_links, tmp_path,
+                email=args.mega_email, password=args.mega_password,
+            )
 
-    print(f"\nDone. Organised into: {dest}")
+            video_files = find_video_files(tmp_path)
+            if not video_files:
+                print("No video files were found in the downloaded content.", file=sys.stderr)
+                return 1
+
+            print(f"\nFound {len(video_files)} video file(s). Fetching metadata...")
+
+            if mode == "m":
+                movie = provider.get_movie(metadata_id)
+                print(f"Movie: {movie.title} ({movie.year}) [tvdbid-{movie.provider_id}]")
+                dest = organise_movie(video_files, movie, library_root)
+            else:
+                show = provider.get_show(metadata_id)
+                print(f"Show: {show.title} ({show.year}) [tvdbid-{show.provider_id}] "
+                      f"- {len(show.episodes)} episode(s) in metadata")
+                dest = organise_show(video_files, show, library_root)
+
+            if args.keep_download:
+                keep_path = library_root / f"_raw_download_{Path(tmp).name}"
+                shutil.copytree(tmp_path, keep_path)
+                print(f"\nRaw download copy kept at: {keep_path}")
+
+        print(f"\nDone. Organised into: {dest}")
     return 0
 
 
