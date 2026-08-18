@@ -607,6 +607,14 @@ def parse_args(argv=None) -> argparse.Namespace:
         help="Directory under which the organised <Title> (<Year>) folder is created"
     )
     parser.add_argument(
+        "--movie-library-root", default=None,
+        help="Directory under which the organised <Title> (<Year>) folder is created"
+    )
+    parser.add_argument(
+        "--show-library-root", default=None,
+        help="Directory under which the organised <Title> (<Year>) folder is created"
+    )
+    parser.add_argument(
         "--tvdb-api-key", default=None,
         help="TVDB API key (overrides TVDB_API_KEY env var)"
     )
@@ -720,6 +728,16 @@ def main(argv=None) -> int:
     library_root = Path(args.library_root).expanduser().resolve()
     library_root.mkdir(parents=True, exist_ok=True)
 
+    movie_library_root = None
+    if args.movie_library_root:
+        movie_library_root = Path(args.movie_library_root).expanduser().resolve()
+        movie_library_root.mkdir(parents=True, exist_ok=True)
+
+    show_library_root = None
+    if args.show_library_root:
+        show_library_root = Path(args.show_library_root).expanduser().resolve()
+        show_library_root.mkdir(parents=True, exist_ok=True)
+
     metadata_provider = build_provider(args)
     candidate_provider = ArgsCandidateProvider(args)
 
@@ -735,7 +753,13 @@ def main(argv=None) -> int:
             candidates = candidate_provider.list_candidates()
 
             for candidate in candidates:
-                fetch(candidate, metadata_provider, library_root, keep_download=args.keep_download)
+                destination = library_root
+                if candidate.type == 'm' and movie_library_root:
+                    destination = movie_library_root
+                elif candidate.type == 's' and show_library_root:
+                    destination = show_library_root
+
+                fetch(candidate, metadata_provider, destination, keep_download=args.keep_download)
                 candidate_provider.remove_candidate(candidate)
 
             if candidate_provider.looping():
