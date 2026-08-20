@@ -507,19 +507,22 @@ def organise_movie(video_files: list[Path], movie: MovieMetadata, library_root: 
     movie_dir.mkdir(parents=True, exist_ok=True)
 
     dest_video = movie_dir / f"{root_name}{main_video.suffix.lower()}"
-    shutil.move(str(main_video), str(dest_video))
+    shutil.copy(str(main_video), str(dest_video))
+    os.remove(str(main_video))
     print(f"  Movie -> {dest_video}")
 
     features_dir = library_root / root_name / "Featurettes"
     for video in featurette_videos:
         dest_feature = features_dir / video.name
-        shutil.move(str(video), str(dest_feature))
+        shutil.copy(str(video), str(dest_feature))
+        os.remove(str(video))
         print(f"  Feature {video.name} -> {dest_feature}")
 
     sub = find_companion_subtitle(main_video)
     if sub and sub.exists():
         dest_sub = dest_video.with_suffix(sub.suffix.lower())
-        shutil.move(str(sub), str(dest_sub))
+        shutil.copy(str(sub), str(dest_sub))
+        os.remove(str(sub))
         print(f"  Subtitle -> {dest_sub}")
 
     return movie_dir
@@ -550,13 +553,15 @@ def organise_show(video_files: list[Path], show: ShowMetadata, library_root: Pat
             f"{show.title} - S{season:02d}E{episode:02d} - {ep_title}"
         )
         dest_video = season_dir / f"{filename}{video.suffix.lower()}"
-        shutil.move(str(video), str(dest_video))
+        shutil.copy(str(video), str(dest_video))
+        os.remove(str(video))
         print(f"  S{season:02d}E{episode:02d} -> {dest_video}")
 
         sub = find_companion_subtitle(video)
         if sub and sub.exists():
             dest_sub = dest_video.with_suffix(sub.suffix.lower())
-            shutil.move(str(sub), str(dest_sub))
+            shutil.copy(str(sub), str(dest_sub))
+            os.remove(str(sub))
             print(f"    Subtitle -> {dest_sub}")
 
     if unmatched:
