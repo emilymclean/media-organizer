@@ -29,6 +29,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
+mega-cmd-server > /dev/null 2>&1 &
+
 if [[ -n "${MEGA_EMAIL:-}" && -n "${MEGA_PASSWORD:-}" ]]; then
     echo "[bootstrap] MEGA_EMAIL set; checking MEGAcmd session..."
 
