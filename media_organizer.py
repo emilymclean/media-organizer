@@ -301,7 +301,7 @@ def media_request_from_dataframe(row: dict) -> MediaRequest:
     return MediaRequest(
         type=row["mode"],
         provider_id=row["id"],
-        mega_links=list(map(lambda x: resolve_link(x.strip()), row["mega_links"].split(",")))
+        mega_links=list(map(lambda x: resolve_link(x.strip()), row["mega_links"].split(";")))
     )
 
 
