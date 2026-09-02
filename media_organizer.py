@@ -337,7 +337,7 @@ class CsvCandidateProvider(CandidateProvider):
         return [media_request_from_dataframe(row) for row in self.df.to_dict(orient="records")]
 
     def remove_candidate(self, candidate: MediaRequest):
-        removed = self.df[self.df["mega_links"] == candidate.mega_links]
+        removed = self.df[self.df["mega_links"].str.contains(candidate.mega_links[0])]
         self.df = pandas.concat([self.df, removed], ignore_index=True).drop_duplicates(keep=False)
 
         with open(self.file_name, "w") as f:
