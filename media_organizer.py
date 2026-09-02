@@ -512,6 +512,7 @@ def organise_movie(video_files: list[Path], movie: MovieMetadata, library_root: 
     print(f"  Movie -> {dest_video}")
 
     features_dir = library_root / root_name / "Featurettes"
+    features_dir.mkdir(parents=True, exist_ok=True)
     for video in featurette_videos:
         dest_feature = features_dir / video.name
         shutil.copyfile(str(video), str(dest_feature))
