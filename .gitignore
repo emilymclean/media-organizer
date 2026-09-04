@@ -3,3 +3,4 @@ library/
 mega-config/
 .idea/
 queue.csv
+database.db
