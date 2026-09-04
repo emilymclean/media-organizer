@@ -19,8 +19,27 @@ migrate = Migrate()
 def create_app():
     app = Flask(__name__)
 
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URI")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+    if os.environ.get("MOVIE_LIBRARY_ROOT"):
+        app.config["MOVIE_LIBRARY_ROOT"] = os.environ.get("MOVIE_LIBRARY_ROOT")
+    elif os.environ.get("LIBRARY_ROOT"):
+        app.config["MOVIE_LIBRARY_ROOT"] = os.environ.get("LIBRARY_ROOT")
+    else:
+        raise Exception("MOVIE_LIBRARY_ROOT or LIBRARY_ROOT environment variable must be set")
+
+    if os.environ.get("SHOW_LIBRARY_ROOT"):
+        app.config["SHOW_LIBRARY_ROOT"] = os.environ.get("SHOW_LIBRARY_ROOT")
+    elif os.environ.get("LIBRARY_ROOT"):
+        app.config["SHOW_LIBRARY_ROOT"] = os.environ.get("LIBRARY_ROOT")
+    else:
+        raise Exception("SHOW_LIBRARY_ROOT or LIBRARY_ROOT environment variable must be set")
+
+    if not os.environ.get("TMDB_API_KEY"):
+        raise Exception("TMDB_API_KEY environment variable must be set")
+
+    app.config["TMDB_API_KEY"] = os.environ.get("TMDB_API_KEY")
 
     db.init_app(app)
     migrate.init_app(app, db)
