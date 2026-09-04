@@ -145,8 +145,8 @@ def background_downloader():
                     print(f"Failed to download {download.tvdbid}: {e}")
                     download.status = DownloadStatus.FAILED
 
-                db.session.commit()
                 print(f"Downloaded {download.tvdbid}")
+                db.session.commit()
 
 
 with app.app_context():
