@@ -62,6 +62,17 @@ def queue():
     return jsonify({"message": "Download queued successfully"}), 201
 
 
+def background_downloader():
+    while True:
+        with db.session.begin():
+            download = db.session.query(QueuedDownload).first()
+            if download:
+
+                db.session.delete(download)
+                db.session.commit()
+                print(f"Downloaded {download.tvdbid}")
+
+
 with app.app_context():
     db.create_all()
 
