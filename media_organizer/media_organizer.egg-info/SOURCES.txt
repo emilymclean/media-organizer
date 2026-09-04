@@ -1,0 +1,5 @@
+setup.py
+media_organizer.egg-info/PKG-INFO
+media_organizer.egg-info/SOURCES.txt
+media_organizer.egg-info/dependency_links.txt
+media_organizer.egg-info/top_level.txt

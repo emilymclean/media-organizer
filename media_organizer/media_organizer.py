@@ -21,16 +21,11 @@ and registering them in PROVIDERS.
 Usage:
     python media_organizer.py m <tvdb_id> <mega_link> [<mega_link> ...]
     python media_organizer.py s <tvdb_id> <mega_link> [<mega_link> ...]
-    python media_organizer.py --csv <csv_file>
 
     Provide more than one <mega_link> when a show's episodes are split
     across multiple Mega links/folders -- they're all downloaded into the
     same source pool before organising, so episodes from any of them get
     matched up correctly.
-
-    CSV files must have a header row with `mode`, `id`, and `mega_link`
-    columns. Use one row per link; rows with the same mode and id are
-    downloaded into the same source pool.
 
     Each <mega_link> does not need to be a raw URL. If it isn't already a
     valid http(s) URL, the script will try base64-decoding it (up to 5
@@ -65,7 +60,6 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
-import csv
 import os
 import re
 import shutil
@@ -78,8 +72,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List
 from urllib.parse import urlparse
-import pandas
-from pandas import DataFrame
 
 # --------------------------------------------------------------------------
 # Constants
@@ -318,46 +310,6 @@ class CandidateProvider(ABC):
 
     def refresh_candidates(self):
         pass
-
-
-class CsvCandidateProvider(CandidateProvider):
-    file_name: str
-    df: DataFrame
-
-    def __init__(self, file_name: str):
-        self.file_name = file_name
-        self._setup_files()
-        self.refresh_candidates()
-
-    def looping(self) -> bool:
-        return True
-
-    def list_candidates(self) -> List[MediaRequest]:
-        self.refresh_candidates()
-        return [media_request_from_dataframe(row) for row in self.df.to_dict(orient="records")]
-
-    def remove_candidate(self, candidate: MediaRequest):
-        self.refresh_candidates()
-        removed = self.df[self.df["mega_links"].str.contains(candidate.mega_links[0])]
-        self.df = pandas.concat([self.df, removed], ignore_index=True).drop_duplicates(keep=False)
-
-        with open(self.file_name, "w") as f:
-            f.write(self.df.to_csv(index=False))
-
-    def refresh_candidates(self):
-        dtype = {
-            'mode': 'string',
-            'id': 'string',
-            'mega_links': 'string'
-        }
-
-        self.df = pandas.read_csv(self.file_name, header=0, dtype=dtype)
-
-    def _setup_files(self):
-        dummy_file = "mode,id,mega_links"
-        if not os.path.exists(self.file_name):
-            with open(self.file_name, "w") as f:
-                f.write(dummy_file)
 
 
 class ArgsCandidateProvider(CandidateProvider):
@@ -600,10 +552,6 @@ def parse_args(argv=None) -> argparse.Namespace:
              "into the same source pool before organising. Each link may "
              "also be base64-encoded (see module docstring)."
     )
-    parser.add_argument(
-        "--csv", dest="csv_path", default=None, metavar="FILE",
-        help="Read batch requests from a CSV with mode,id,mega_link columns",
-    )
 
     parser.add_argument(
         "--provider", default="tvdb", choices=list(PROVIDERS.keys()),
@@ -643,49 +591,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     )
 
     args = parser.parse_args(argv)
-    if args.csv_path and args.mega_links:
-        parser.error("--csv cannot be combined with positional Mega links")
-    if args.csv_path and (args.mode or args.id):
-        parser.error("--csv cannot be combined with positional mode or id")
-    if not args.csv_path and (not args.mode or not args.id or not args.mega_links):
-        parser.error("provide mode, metadata ID, and Mega links, or use --csv FILE")
+
+    if not args.mode or not args.id or not args.mega_links:
+        parser.error("provide mode, metadata ID, and Mega links")
     return args
-
-
-def load_csv_requests(csv_path: str) -> list[tuple[str, str, list[str]]]:
-    """Load and group CSV rows as (mode, metadata_id, links) requests."""
-    requests: dict[tuple[str, str], list[str]] = {}
-    try:
-        csv_file = open(csv_path, "r", encoding="utf-8-sig", newline="")
-    except OSError as exc:
-        raise ValueError(f"Could not open CSV file '{csv_path}': {exc}") from exc
-
-    with csv_file:
-        reader = csv.DictReader(csv_file)
-        fieldnames = {field.strip() for field in (reader.fieldnames or []) if field}
-        required = {"mode", "id", "mega_link"}
-        missing = required - fieldnames
-        if missing:
-            missing_text = ", ".join(sorted(missing))
-            raise ValueError(f"CSV is missing required column(s): {missing_text}")
-
-        for row_number, row in enumerate(reader, start=2):
-            mode = (row.get("mode") or "").strip().lower()
-            metadata_id = (row.get("id") or "").strip()
-            link = (row.get("mega_link") or "").strip()
-            if not mode and not metadata_id and not link:
-                continue
-            if mode not in {"m", "s"}:
-                raise ValueError(f"CSV row {row_number}: mode must be 'm' or 's'")
-            if not metadata_id or not link:
-                raise ValueError(
-                    f"CSV row {row_number}: id and mega_link must not be empty"
-                )
-            requests.setdefault((mode, metadata_id), []).append(link)
-
-    if not requests:
-        raise ValueError("CSV contains no media requests")
-    return [(mode, metadata_id, links) for (mode, metadata_id), links in requests.items()]
 
 
 def build_provider(args: argparse.Namespace) -> MetadataProvider:
@@ -747,9 +656,6 @@ def main(argv=None) -> int:
 
     metadata_provider = build_provider(args)
     candidate_provider = ArgsCandidateProvider(args)
-
-    if args.csv_path:
-        candidate_provider = CsvCandidateProvider(args.csv_path)
 
     loggedIn = False
     if args.mega_email and args.mega_password:

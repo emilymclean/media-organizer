@@ -1,0 +1,18 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+media-organizer = {path = "../media_organizer"}
+alembic = "*"
+sqlalchemy = "*"
+flask = "*"
+flask-sqlalchemy = "*"
+flask-migrate = "*"
+pydantic = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.11"
