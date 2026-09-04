@@ -4,13 +4,14 @@ from enum import Enum
 from time import sleep
 from typing import Annotated
 
+import backoff
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from pydantic import BaseModel, ValidationError, AnyHttpUrl, AfterValidator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from media_organizer.media_organizer import mega_login, TVDBProvider, MediaRequest, fetch
+from media_organizer.media_organizer import mega_login, TVDBProvider, MediaRequest, fetch, MetadataProvider
 
 
 class Base(DeclarativeBase):
@@ -64,11 +65,18 @@ def create_app():
 app = create_app()
 
 
+class DownloadStatus(str, Enum):
+    QUEUED = "queued"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
 class QueuedDownload(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     mode: Mapped[str] = mapped_column(nullable=False)
     tvdbid: Mapped[str] = mapped_column(nullable=False)
     mega_url: Mapped[str] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(default=DownloadStatus.QUEUED)
 
 
 class DownloadMode(str, Enum):
@@ -99,6 +107,18 @@ def queue():
     return jsonify({"message": "Download queued successfully"}), 201
 
 
+@backoff.on_exception(backoff.expo, Exception, max_tries=5)
+def download_media(provider: MetadataProvider, download: QueuedDownload):
+    candidate = MediaRequest(download.mode, download.tvdbid, [download.mega_url])
+
+    if download.mode == 'm':
+        library_path = app.config["MOVIE_LIBRARY_PATH"]
+    else:
+        library_path = app.config["SHOW_LIBRARY_PATH"]
+
+    fetch(candidate, provider, library_path)
+
+
 # I know a task queue like celery would be better
 def background_downloader():
     if app.config.get("MEGA_EMAIL") and app.config.get("MEGA_PASSWORD"):
@@ -108,7 +128,9 @@ def background_downloader():
     while True:
         with app.app_context():
             with db.session.begin():
-                download = db.session.query(QueuedDownload).first()
+                download = db.session.query(QueuedDownload).filter(
+                    QueuedDownload.status == DownloadStatus.QUEUED
+                ).first()
                 if not download:
                     print(f"No candidates")
                     sleep(60)
@@ -116,16 +138,13 @@ def background_downloader():
 
                 print(f"Attempting download of {download.tvdbid}")
 
-                candidate = MediaRequest(download.mode, download.tvdbid, [download.mega_url])
+                try:
+                    download_media(provider, download)
+                    download.status = DownloadStatus.SUCCESS
+                except Exception as e:
+                    print(f"Failed to download {download.tvdbid}: {e}")
+                    download.status = DownloadStatus.FAILED
 
-                if download.mode == 'm':
-                    library_path = app.config["MOVIE_LIBRARY_PATH"]
-                else:
-                    library_path = app.config["SHOW_LIBRARY_PATH"]
-
-                fetch(candidate, provider, library_path)
-
-                db.session.delete(download)
                 db.session.commit()
                 print(f"Downloaded {download.tvdbid}")
 
