@@ -1,11 +1,13 @@
 import os
 import threading
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from time import sleep
 from typing import Annotated
 
 import backoff
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from pydantic import BaseModel, ValidationError, AnyHttpUrl, AfterValidator
@@ -23,6 +25,9 @@ migrate = Migrate()
 
 
 def validate_host(url: AnyHttpUrl) -> AnyHttpUrl:
+    if url.scheme != "https":
+        raise ValueError(f"Scheme '{url.scheme}' is not allowed. Must be https")
+
     if url.host != "mega.nz":
         raise ValueError(f"Host '{url.host}' is not allowed. Must be mega.nz")
     return url
@@ -66,8 +71,8 @@ app = create_app()
 
 
 class DownloadStatus(str, Enum):
-    QUEUED = "queued"
     ACTIVE = "active"
+    QUEUED = "queued"
     SUCCESS = "success"
     FAILED = "failed"
 
@@ -75,10 +80,11 @@ class DownloadStatus(str, Enum):
 class QueuedDownload(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     mode: Mapped[str] = mapped_column(nullable=False)
-    tvdbid: Mapped[str] = mapped_column(nullable=False)
+    tvdb_id: Mapped[str] = mapped_column(nullable=False)
     mega_url: Mapped[str] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(default=DownloadStatus.QUEUED)
     order: Mapped[int] = mapped_column(default=0)
+    last_updated: Mapped[datetime] = mapped_column(default=datetime.now(timezone.utc))
 
 
 class DownloadMode(str, Enum):
@@ -89,7 +95,7 @@ class DownloadMode(str, Enum):
 class CreateQueuedDownloadRequest(BaseModel):
     mode: DownloadMode
     mega_url: Annotated[AnyHttpUrl, AfterValidator(validate_host)]
-    tvdbid: str
+    tvdb_id: str
 
 
 @app.post("/api/queue")
@@ -102,16 +108,56 @@ def queue():
     with db.session.begin():
         db.session.add(QueuedDownload(
             mode=data["mode"],
-            tvdbid=data["tvdbid"],
+            tvdb_id=data["tvdb_id"],
             mega_url=str(data["mega_url"])
         ))
 
     return jsonify({"message": "Download queued successfully"}), 201
 
 
+@dataclass
+class QueuedDownloadModel:
+    mode: DownloadMode
+    tvdb_id: str
+    mega_url: str
+    order: str
+    status: DownloadStatus
+
+
+@dataclass
+class GetQueuedDownloadsResponse:
+    downloads: list[QueuedDownloadModel]
+
+
+@app.get("/api/downloads")
+def get_queued_downloads():
+    with app.app_context():
+        with db.session.begin():
+            downloads = db.session.query(QueuedDownload).order_by(
+                QueuedDownload.last_updated.desc(), QueuedDownload.id.asc()
+            ).limit(
+                50
+            ).all()
+
+        out = list(map(lambda x: QueuedDownloadModel(
+            mode=x.mode,
+            tvdb_id=x.tvdb_id,
+            mega_url=x.mega_url,
+            order=x.order,
+            status=x.status
+        ), downloads))
+
+        return jsonify(GetQueuedDownloadsResponse(downloads=out))
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
 @backoff.on_exception(backoff.expo, Exception, max_tries=5)
 def download_media(provider: MetadataProvider, download: QueuedDownload):
-    candidate = MediaRequest(download.mode, download.tvdbid, [download.mega_url])
+    candidate = MediaRequest(download.mode, download.tvdb_id, [download.mega_url])
 
     if download.mode == 'm':
         library_path = app.config["MOVIE_LIBRARY_PATH"]
@@ -140,23 +186,25 @@ def background_downloader():
                     sleep(60)
                     continue
 
-                print(f"Attempting download of {download.tvdbid}")
+                print(f"Attempting download of {download.tvdb_id}")
 
                 download.status = DownloadStatus.ACTIVE
+                download.last_updated = datetime.now(timezone.utc)
                 db.session.commit()
 
             try:
                 download_media(provider, download)
-                print(f"Downloaded {download.tvdbid}")
+                print(f"Downloaded {download.tvdb_id}")
                 succeeded = True
             except Exception as e:
-                print(f"Failed to download {download.tvdbid}: {e}")
+                print(f"Failed to download {download.tvdb_id}: {e}")
                 succeeded = False
 
             if succeeded:
                 download.status = DownloadStatus.SUCCESS
             else:
                 download.status = DownloadStatus.FAILED
+            download.last_updated = datetime.now(timezone.utc)
             db.session.commit()
 
 

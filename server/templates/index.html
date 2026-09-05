@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Download Queue</title>
+<style>
+  :root {
+    --bg: #14171c;
+    --panel: #1b1f26;
+    --panel-border: #2a2f38;
+    --ink: #e7e9ec;
+    --ink-dim: #8b9099;
+    --accent: #fac1be;
+    --accent-dim: #34625e;
+    --queued: #6b7280;
+    --active: #d9a441;
+    --success: #4caf7d;
+    --failed: #d9605a;
+    --mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+    --sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    min-height: 100vh;
+  }
+
+  header {
+    padding: 28px 24px 20px;
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  header h1 {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  header h1 .dot {
+    color: var(--accent);
+  }
+
+  .refresh-note {
+    font-size: 0.8rem;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+  }
+
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 28px 24px 64px;
+    display: grid;
+    gap: 28px;
+  }
+
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+
+  .panel h2 {
+    margin: 0 0 16px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  form {
+    display: grid;
+    grid-template-columns: 110px 1fr 160px auto;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  @media (max-width: 700px) {
+    form { grid-template-columns: 1fr; }
+  }
+
+  label {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--ink-dim);
+    margin-bottom: 5px;
+  }
+
+  .field { display: flex; flex-direction: column; }
+
+  select, input[type="text"], input[type="url"] {
+    background: #101317;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: var(--ink);
+    padding: 9px 10px;
+    font-size: 0.88rem;
+    font-family: var(--sans);
+    width: 100%;
+  }
+
+  select:focus, input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  input[type="url"] { font-family: var(--mono); font-size: 0.82rem; }
+
+  button {
+    background: var(--accent);
+    color: #0c1210;
+    border: none;
+    border-radius: 6px;
+    padding: 0 18px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+    align-self: end;
+    height: 38px;
+  }
+
+  button:hover { background: #63c1b9; }
+  button:disabled { background: var(--accent-dim); cursor: default; }
+
+  .form-msg {
+    grid-column: 1 / -1;
+    font-size: 0.82rem;
+    min-height: 1.2em;
+  }
+
+  .form-msg.err { color: var(--failed); }
+  .form-msg.ok { color: var(--success); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  thead th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--ink-dim);
+    font-size: 0.72rem;
+    padding: 0 10px 8px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  tbody td {
+    padding: 10px 10px;
+    border-bottom: 1px solid #21252c;
+    vertical-align: middle;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  .url-cell {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-dim);
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tvdb-cell { font-family: var(--mono); }
+
+  .mode-badge {
+    font-size: 0.72rem;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid var(--panel-border);
+    color: var(--ink-dim);
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    padding: 3px 9px;
+    border-radius: 20px;
+    border: 1px solid transparent;
+  }
+
+  .status-pill::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .status-queued { color: var(--queued); background: rgba(107,114,128,0.12); }
+  .status-active { color: var(--active); background: rgba(217,164,65,0.12); }
+  .status-success { color: var(--success); background: rgba(76,175,125,0.12); }
+  .status-failed { color: var(--failed); background: rgba(217,96,90,0.12); }
+
+  .empty-state {
+    color: var(--ink-dim);
+    font-size: 0.85rem;
+    padding: 18px 4px;
+  }
+
+  .error-banner {
+    background: rgba(217,96,90,0.12);
+    border: 1px solid var(--failed);
+    color: var(--failed);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.82rem;
+    margin-bottom: 14px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Download Queue<span class="dot">.</span></h1>
+  <span class="refresh-note">refreshing every 10s</span>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Queue new download</h2>
+    <form id="queue-form">
+      <div class="field">
+        <label for="mode">Type</label>
+        <select id="mode" name="mode">
+          <option value="m">Movie</option>
+          <option value="s">Show</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="mega_url">Mega.nz URL</label>
+        <input type="url" id="mega_url" name="mega_url" placeholder="https://mega.nz/..." required>
+      </div>
+      <div class="field">
+        <label for="tvdb_id">TVDB ID</label>
+        <input type="text" id="tvdb_id" name="tvdb_id" placeholder="123456" required>
+      </div>
+      <button type="submit" id="submit-btn">Add to queue</button>
+      <div class="form-msg" id="form-msg"></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Queued &amp; recent downloads</h2>
+    <div id="list-error"></div>
+    <div id="list-container">
+      <div class="empty-state">Loading…</div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const listContainer = document.getElementById('list-container');
+  const listError = document.getElementById('list-error');
+  const form = document.getElementById('queue-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const formMsg = document.getElementById('form-msg');
+
+  const STATUS_LABELS = {
+    queued: 'Queued',
+    active: 'Downloading',
+    success: 'Done',
+    failed: 'Failed'
+  };
+
+  const MODE_LABELS = { m: 'Movie', s: 'Show' };
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function renderDownloads(downloads) {
+    if (!downloads || downloads.length === 0) {
+      listContainer.innerHTML = '<div class="empty-state">Nothing queued yet. Add a download above.</div>';
+      return;
+    }
+
+    const rows = downloads.map(d => {
+      const status = (d.status || 'queued').toLowerCase();
+      const statusLabel = STATUS_LABELS[status] || d.status;
+      const modeLabel = MODE_LABELS[d.mode] || d.mode;
+      return `
+        <tr>
+          <td><span class="mode-badge">${escapeHtml(modeLabel)}</span></td>
+          <td class="tvdb-cell">${escapeHtml(d.tvdb_id)}</td>
+          <td class="url-cell" title="${escapeHtml(d.mega_url)}">${escapeHtml(d.mega_url)}</td>
+          <td><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}</span></td>
+        </tr>`;
+    }).join('');
+
+    listContainer.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>TVDB ID</th>
+            <th>Source</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  async function loadDownloads() {
+    try {
+      const res = await fetch('/api/downloads');
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = await res.json();
+      listError.innerHTML = '';
+      renderDownloads(data.downloads);
+    } catch (err) {
+      listError.innerHTML = `<div class="error-banner">Couldn't load the queue: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    formMsg.textContent = '';
+    formMsg.className = 'form-msg';
+
+    const payload = {
+      mode: document.getElementById('mode').value,
+      mega_url: document.getElementById('mega_url').value.trim(),
+      tvdb_id: document.getElementById('tvdb_id').value.trim()
+    };
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Adding…';
+
+    try {
+      const res = await fetch('/api/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const detail = Array.isArray(body) ? body.map(e => e.msg).join(', ') : (body.message || `Request failed (${res.status})`);
+        throw new Error(detail);
+      }
+
+      formMsg.textContent = body.message || 'Added to queue.';
+      formMsg.className = 'form-msg ok';
+      form.reset();
+      loadDownloads();
+    } catch (err) {
+      formMsg.textContent = err.message;
+      formMsg.className = 'form-msg err';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Add to queue';
+    }
+  });
+
+  loadDownloads();
+  setInterval(loadDownloads, 10000);
+</script>
+
+</body>
+</html>
