@@ -169,9 +169,6 @@ def download_media(provider: MetadataProvider, download: QueuedDownload):
 
 # I know a task queue like celery would be better
 def background_downloader():
-    if app.config.get("MEGA_EMAIL") and app.config.get("MEGA_PASSWORD"):
-        mega_login(app.config["MEGA_EMAIL"], app.config["MEGA_PASSWORD"])
-
     provider = TVDBProvider(api_key=app.config["TVDB_API_KEY"], pin=None)
     while True:
         with app.app_context():
