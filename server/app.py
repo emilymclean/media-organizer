@@ -188,7 +188,7 @@ def index():
     return render_template('index.html')
 
 
-@backoff.on_exception(backoff.expo, Exception, max_tries=5)
+# @backoff.on_exception(backoff.expo, Exception, max_tries=5)
 def download_media(provider: MetadataProvider, download: QueuedDownload):
     with app.app_context():
         candidate = MediaRequest(download.mode, download.tvdb_id, [download.mega_url])
