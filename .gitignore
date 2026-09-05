@@ -3,3 +3,8 @@ library/
 mega-config/
 .idea/
 queue.csv
+database.db
+
+server/__pycache__/
+
+media_organizer/media_organizer.egg-info/

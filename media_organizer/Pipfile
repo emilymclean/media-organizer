@@ -4,6 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+tvdb_v4_official = "*"
 
 [dev-packages]
 
