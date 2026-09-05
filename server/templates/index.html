@@ -373,7 +373,7 @@
     btn.disabled = true;
     btn.textContent = 'Retrying…';
     try {
-      const res = await fetch(`/api/download/${id}/retry`, { method: 'POST' });
+      const res = await fetch(`/api/download/${id}/retry`, { method: 'PUT' });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || `Retry failed (${res.status})`);
