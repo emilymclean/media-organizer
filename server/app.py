@@ -12,6 +12,7 @@ from flask import Flask, request, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from pydantic import BaseModel, ValidationError, AnyHttpUrl, AfterValidator
+from sqlalchemy import or_
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from media_organizer.media_organizer import mega_login, TVDBProvider, MediaRequest, fetch, MetadataProvider
@@ -206,13 +207,15 @@ def download_media(provider: MetadataProvider, download: QueuedDownload):
 
 # I know a task queue like celery would be better
 def background_downloader():
-    provider = TVDBProvider(api_key=app.config["TVDB_API_KEY"], pin=None)
-    while True:
-        with app.app_context():
+    with app.app_context():
+        provider = TVDBProvider(api_key=app.config["TVDB_API_KEY"], pin=None)
+        while True:
             with db.session.begin():
                 download = db.session.query(QueuedDownload).filter(
-                    QueuedDownload.status == DownloadStatus.QUEUED or
-                    QueuedDownload.status == DownloadStatus.ACTIVE
+                    or_(
+                        QueuedDownload.status == DownloadStatus.QUEUED,
+                        QueuedDownload.status == DownloadStatus.ACTIVE
+                    )
                 ).order_by(
                     QueuedDownload.status != DownloadStatus.ACTIVE, QueuedDownload.order.desc(), QueuedDownload.id.asc()
                 ).first()
