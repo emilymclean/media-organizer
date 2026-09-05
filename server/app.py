@@ -98,7 +98,7 @@ class CreateQueuedDownloadRequest(BaseModel):
     tvdb_id: str
 
 
-@app.post("/api/queue")
+@app.post("/api/download")
 def queue():
     try:
         data = CreateQueuedDownloadRequest(**request.json).model_dump()
@@ -117,6 +117,7 @@ def queue():
 
 @dataclass
 class QueuedDownloadModel:
+    id: int
     mode: DownloadMode
     tvdb_id: str
     mega_url: str
@@ -131,23 +132,48 @@ class GetQueuedDownloadsResponse:
 
 @app.get("/api/downloads")
 def get_queued_downloads():
-    with app.app_context():
-        with db.session.begin():
-            downloads = db.session.query(QueuedDownload).order_by(
-                QueuedDownload.last_updated.desc(), QueuedDownload.id.asc()
-            ).limit(
-                50
-            ).all()
+    with db.session.begin():
+        downloads = db.session.query(QueuedDownload).order_by(
+            QueuedDownload.last_updated.desc(), QueuedDownload.id.asc()
+        ).limit(
+            50
+        ).all()
 
-        out = list(map(lambda x: QueuedDownloadModel(
-            mode=x.mode,
-            tvdb_id=x.tvdb_id,
-            mega_url=x.mega_url,
-            order=x.order,
-            status=x.status
-        ), downloads))
+    out = list(map(lambda x: QueuedDownloadModel(
+        id=x.id,
+        mode=x.mode,
+        tvdb_id=x.tvdb_id,
+        mega_url=x.mega_url,
+        order=x.order,
+        status=x.status
+    ), downloads))
 
-        return jsonify(GetQueuedDownloadsResponse(downloads=out))
+    return jsonify(GetQueuedDownloadsResponse(downloads=out))
+
+
+@app.put("/api/download/<int:download_id>/retry")
+def retry_download(download_id: int):
+    with db.session.begin():
+        download = db.session.query(QueuedDownload).filter_by(id=download_id).first()
+        if not download:
+            return jsonify({}), 404
+
+        download.status = DownloadStatus.QUEUED
+        download.last_updated = datetime.now()
+
+        return jsonify({"message": "Download queued successfully"})
+
+
+@app.delete("/api/download/<int:download_id>")
+def delete_download(download_id: int):
+    with db.session.begin():
+        download = db.session.query(QueuedDownload).filter_by(id=download_id).first()
+        if not download:
+            return jsonify({}), 404
+
+        db.session.delete(download)
+
+        return jsonify({"message": "Download deleted successfully"})
 
 
 @app.route('/')
@@ -157,14 +183,15 @@ def index():
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=5)
 def download_media(provider: MetadataProvider, download: QueuedDownload):
-    candidate = MediaRequest(download.mode, download.tvdb_id, [download.mega_url])
+    with app.app_context():
+        candidate = MediaRequest(download.mode, download.tvdb_id, [download.mega_url])
 
-    if download.mode == 'm':
-        library_path = app.config["MOVIE_LIBRARY_PATH"]
-    else:
-        library_path = app.config["SHOW_LIBRARY_PATH"]
+        if download.mode == 'm':
+            library_path = app.config["MOVIE_LIBRARY_ROOT"]
+        else:
+            library_path = app.config["SHOW_LIBRARY_ROOT"]
 
-    fetch(candidate, provider, library_path)
+        fetch(candidate, provider, library_path)
 
 
 # I know a task queue like celery would be better
@@ -179,7 +206,6 @@ def background_downloader():
                     QueuedDownload.order.desc(), QueuedDownload.id.asc()
                 ).first()
                 if not download:
-                    print(f"No candidates")
                     sleep(60)
                     continue
 

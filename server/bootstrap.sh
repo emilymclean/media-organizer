@@ -35,7 +35,7 @@ else
 fi
 
 echo "[bootstrap] Running app..."
-gunicorn -w 4 -b 0.0.0.0:5000 app:app "$@"
+gunicorn -w 1 -b 0.0.0.0:5000 app:app "$@"
 status=$?
 
 echo "[bootstrap] app.py exited with status ${status}."

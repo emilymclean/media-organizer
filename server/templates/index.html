@@ -11,7 +11,7 @@
     --panel-border: #2a2f38;
     --ink: #e7e9ec;
     --ink-dim: #8b9099;
-    --accent: #fac1be;
+    --accent: #4fb0a8;
     --accent-dim: #34625e;
     --queued: #6b7280;
     --active: #d9a441;
@@ -164,6 +164,26 @@
     vertical-align: middle;
   }
 
+  .status-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .retry-btn {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent-dim);
+    border-radius: 6px;
+    padding: 3px 10px;
+    height: auto;
+    font-size: 0.74rem;
+    font-weight: 500;
+  }
+
+  .retry-btn:hover { background: rgba(79,176,168,0.12); }
+  .retry-btn:disabled { color: var(--ink-dim); border-color: var(--panel-border); background: transparent; }
+
   tbody tr:last-child td { border-bottom: none; }
 
   .url-cell {
@@ -298,12 +318,16 @@
       const status = (d.status || 'queued').toLowerCase();
       const statusLabel = STATUS_LABELS[status] || d.status;
       const modeLabel = MODE_LABELS[d.mode] || d.mode;
+      const retryBtn = status === 'failed'
+        ? `<button type="button" class="retry-btn" data-id="${escapeHtml(d.id)}">Retry</button>`
+        : '';
       return `
         <tr>
           <td><span class="mode-badge">${escapeHtml(modeLabel)}</span></td>
           <td class="tvdb-cell">${escapeHtml(d.tvdb_id)}</td>
           <td class="url-cell" title="${escapeHtml(d.mega_url)}">${escapeHtml(d.mega_url)}</td>
           <td><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}</span></td>
+          <td>${retryBtn}</td>
         </tr>`;
     }).join('');
 
@@ -315,11 +339,36 @@
             <th>TVDB ID</th>
             <th>Source</th>
             <th>Status</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
   }
+
+  async function retryDownload(id, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Retrying…';
+    try {
+      const res = await fetch(`/api/download/${id}/retry`, { method: 'PUT' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Retry failed (${res.status})`);
+      }
+      listError.innerHTML = '';
+      loadDownloads();
+    } catch (err) {
+      listError.innerHTML = `<div class="error-banner">Couldn't retry download: ${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Retry';
+    }
+  }
+
+  listContainer.addEventListener('click', (e) => {
+    const btn = e.target.closest('.retry-btn');
+    if (!btn) return;
+    retryDownload(btn.dataset.id, btn);
+  });
 
   async function loadDownloads() {
     try {
@@ -348,7 +397,7 @@
     submitBtn.textContent = 'Adding…';
 
     try {
-      const res = await fetch('/api/queue', {
+      const res = await fetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
