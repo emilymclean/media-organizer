@@ -3,6 +3,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from time import sleep
 from typing import Annotated
 
@@ -197,7 +198,7 @@ def download_media(provider: MetadataProvider, download: QueuedDownload):
             library_path = app.config["SHOW_LIBRARY_ROOT"]
 
         try:
-            fetch(candidate, provider, library_path)
+            fetch(candidate, provider, Path(library_path).expanduser().resolve())
         except Exception as e:
             print(f"Failed to download {download.tvdb_id}: {e}")
             raise e
