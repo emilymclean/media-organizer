@@ -463,7 +463,10 @@
 
       formMsg.textContent = body.message || 'Added to queue.';
       formMsg.className = 'form-msg ok';
-      form.reset();
+
+      document.getElementById('mega_url').value = "";
+      document.getElementById('tvdb_id').value = "";
+
       loadDownloads();
     } catch (err) {
       formMsg.textContent = err.message;
