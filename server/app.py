@@ -210,9 +210,10 @@ def background_downloader():
         with app.app_context():
             with db.session.begin():
                 download = db.session.query(QueuedDownload).filter(
-                    QueuedDownload.status == DownloadStatus.QUEUED
+                    QueuedDownload.status == DownloadStatus.QUEUED or
+                    QueuedDownload.status == DownloadStatus.ACTIVE
                 ).order_by(
-                    QueuedDownload.order.desc(), QueuedDownload.id.asc()
+                    QueuedDownload.status != DownloadStatus.ACTIVE, QueuedDownload.order.desc(), QueuedDownload.id.asc()
                 ).first()
                 if not download:
                     sleep(60)
