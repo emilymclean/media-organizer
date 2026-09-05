@@ -31,7 +31,7 @@ RUN pip install gunicorn
 # --- App code ----------------------------------------------------------
 COPY ./server/app.py .
 COPY ./server/bootstrap.sh /usr/local/bin/bootstrap.sh
-COPY ./server/templates .
+COPY ./server/templates ./templates
 RUN chmod +x /usr/local/bin/bootstrap.sh
 
 # /library : organised media output (mount a host directory here)
