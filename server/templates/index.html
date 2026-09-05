@@ -184,6 +184,26 @@
   .retry-btn:hover { background: rgba(79,176,168,0.12); }
   .retry-btn:disabled { color: var(--ink-dim); border-color: var(--panel-border); background: transparent; }
 
+  .action-cell {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  .delete-btn {
+    background: transparent;
+    color: var(--failed);
+    border: 1px solid #5a3532;
+    border-radius: 6px;
+    padding: 3px 10px;
+    height: auto;
+    font-size: 0.74rem;
+    font-weight: 500;
+  }
+
+  .delete-btn:hover { background: rgba(217,96,90,0.12); }
+  .delete-btn:disabled { color: var(--ink-dim); border-color: var(--panel-border); background: transparent; }
+
   tbody tr:last-child td { border-bottom: none; }
 
   .url-cell {
@@ -321,13 +341,16 @@
       const retryBtn = status === 'failed'
         ? `<button type="button" class="retry-btn" data-id="${escapeHtml(d.id)}">Retry</button>`
         : '';
+      const deleteBtn = status !== 'active'
+        ? `<button type="button" class="delete-btn" data-id="${escapeHtml(d.id)}">Delete</button>`
+        : '';
       return `
         <tr>
           <td><span class="mode-badge">${escapeHtml(modeLabel)}</span></td>
           <td class="tvdb-cell">${escapeHtml(d.tvdb_id)}</td>
           <td class="url-cell" title="${escapeHtml(d.mega_url)}">${escapeHtml(d.mega_url)}</td>
           <td><span class="status-pill status-${escapeHtml(status)}">${escapeHtml(statusLabel)}</span></td>
-          <td>${retryBtn}</td>
+          <td><div class="action-cell">${retryBtn}${deleteBtn}</div></td>
         </tr>`;
     }).join('');
 
@@ -350,7 +373,7 @@
     btn.disabled = true;
     btn.textContent = 'Retrying…';
     try {
-      const res = await fetch(`/api/download/${id}/retry`, { method: 'PUT' });
+      const res = await fetch(`/api/download/${id}/retry`, { method: 'POST' });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || `Retry failed (${res.status})`);
@@ -364,10 +387,38 @@
     }
   }
 
+  async function deleteDownload(id, btn) {
+    if (!confirm('Delete this download from the queue?')) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+    const row = btn.closest('tr');
+    try {
+      const res = await fetch(`/api/download/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Delete failed (${res.status})`);
+      }
+      listError.innerHTML = '';
+      if (row) row.remove();
+      loadDownloads();
+    } catch (err) {
+      listError.innerHTML = `<div class="error-banner">Couldn't delete download: ${escapeHtml(err.message)}</div>`;
+      btn.disabled = false;
+      btn.textContent = 'Delete';
+    }
+  }
+
   listContainer.addEventListener('click', (e) => {
-    const btn = e.target.closest('.retry-btn');
-    if (!btn) return;
-    retryDownload(btn.dataset.id, btn);
+    const retryBtn = e.target.closest('.retry-btn');
+    if (retryBtn) {
+      retryDownload(retryBtn.dataset.id, retryBtn);
+      return;
+    }
+    const deleteBtn = e.target.closest('.delete-btn');
+    if (deleteBtn) {
+      deleteDownload(deleteBtn.dataset.id, deleteBtn);
+    }
   });
 
   async function loadDownloads() {

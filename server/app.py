@@ -173,6 +173,9 @@ def delete_download(download_id: int):
         if not download:
             return jsonify({}), 404
 
+        if download.status == DownloadStatus.ACTIVE:
+            return jsonify({"message": "Download cannot be deleted while it is active"}), 400
+
         db.session.delete(download)
 
         return jsonify({"message": "Download deleted successfully"})
