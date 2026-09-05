@@ -67,6 +67,7 @@ app = create_app()
 
 class DownloadStatus(str, Enum):
     QUEUED = "queued"
+    ACTIVE = "active"
     SUCCESS = "success"
     FAILED = "failed"
 
@@ -77,6 +78,7 @@ class QueuedDownload(db.Model):
     tvdbid: Mapped[str] = mapped_column(nullable=False)
     mega_url: Mapped[str] = mapped_column(nullable=False)
     status: Mapped[str] = mapped_column(default=DownloadStatus.QUEUED)
+    order: Mapped[int] = mapped_column(default=0)
 
 
 class DownloadMode(str, Enum):
@@ -130,6 +132,8 @@ def background_downloader():
             with db.session.begin():
                 download = db.session.query(QueuedDownload).filter(
                     QueuedDownload.status == DownloadStatus.QUEUED
+                ).order_by(
+                    QueuedDownload.order.desc(), QueuedDownload.id.asc()
                 ).first()
                 if not download:
                     print(f"No candidates")
@@ -138,15 +142,22 @@ def background_downloader():
 
                 print(f"Attempting download of {download.tvdbid}")
 
-                try:
-                    download_media(provider, download)
-                    download.status = DownloadStatus.SUCCESS
-                except Exception as e:
-                    print(f"Failed to download {download.tvdbid}: {e}")
-                    download.status = DownloadStatus.FAILED
-
-                print(f"Downloaded {download.tvdbid}")
+                download.status = DownloadStatus.ACTIVE
                 db.session.commit()
+
+            try:
+                download_media(provider, download)
+                print(f"Downloaded {download.tvdbid}")
+                succeeded = True
+            except Exception as e:
+                print(f"Failed to download {download.tvdbid}: {e}")
+                succeeded = False
+
+            if succeeded:
+                download.status = DownloadStatus.SUCCESS
+            else:
+                download.status = DownloadStatus.FAILED
+            db.session.commit()
 
 
 with app.app_context():
