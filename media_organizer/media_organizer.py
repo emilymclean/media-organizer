@@ -166,7 +166,7 @@ class TVDBProvider(MetadataProvider):
     def get_movie(self, provider_id: str) -> MovieMetadata:
         data = self._client.get_movie_extended(int(provider_id))
         title = (
-                next((item.get("name") for item in data.get("aliases", []) if item.get("language") == "eng"))
+                next((item.get("name") for item in data.get("aliases", []) if item.get("language") == "eng"), None)
                 or data.get("name")
                 or _first_translated_name(data)
         )
@@ -179,7 +179,7 @@ class TVDBProvider(MetadataProvider):
     def get_show(self, provider_id: str) -> ShowMetadata:
         series = self._client.get_series_extended(int(provider_id))
         title = (
-                next((item.get("name") for item in series.get("aliases", []) if item.get("language") == "eng"))
+                next((item.get("name") for item in series.get("aliases", []) if item.get("language") == "eng"), None)
                 or series.get("name")
                 or _first_translated_name(series)
         )
