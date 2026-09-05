@@ -196,7 +196,11 @@ def download_media(provider: MetadataProvider, download: QueuedDownload):
         else:
             library_path = app.config["SHOW_LIBRARY_ROOT"]
 
-        fetch(candidate, provider, library_path)
+        try:
+            fetch(candidate, provider, library_path)
+        except Exception as e:
+            print(f"Failed to download {download.tvdb_id}: {e}")
+            raise e
 
 
 # I know a task queue like celery would be better
@@ -225,7 +229,6 @@ def background_downloader():
                 print(f"Downloaded {download.tvdb_id}")
                 succeeded = True
             except Exception as e:
-                print(f"Failed to download {download.tvdb_id}: {e}")
                 succeeded = False
 
             if succeeded:
