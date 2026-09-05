@@ -82,7 +82,7 @@ class QueuedDownload(db.Model):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     mode: Mapped[str] = mapped_column(nullable=False)
     tvdb_id: Mapped[str] = mapped_column(nullable=False)
-    mega_url: Mapped[str] = mapped_column(nullable=False)
+    mega_url: Mapped[str] = mapped_column(nullable=False, unique=True)
     status: Mapped[str] = mapped_column(default=DownloadStatus.QUEUED)
     order: Mapped[int] = mapped_column(default=0)
     last_updated: Mapped[datetime] = mapped_column(default=datetime.now(timezone.utc))
