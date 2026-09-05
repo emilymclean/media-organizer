@@ -4,7 +4,6 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-media-organizer = {path = "../media_organizer"}
 alembic = "*"
 sqlalchemy = "*"
 flask = "*"
