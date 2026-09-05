@@ -133,10 +133,12 @@ class GetQueuedDownloadsResponse:
 @app.get("/api/downloads")
 def get_queued_downloads():
     with db.session.begin():
-        downloads = db.session.query(QueuedDownload).order_by(
+        downloads = db.session.query(QueuedDownload).filter_by(
+            QueuedDownload.status != DownloadStatus.SUCCESS
+        ).order_by(
             QueuedDownload.last_updated.desc(), QueuedDownload.id.asc()
         ).limit(
-            50
+            500
         ).all()
 
     out = list(map(lambda x: QueuedDownloadModel(
