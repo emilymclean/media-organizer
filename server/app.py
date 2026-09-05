@@ -138,7 +138,7 @@ def get_queued_downloads():
         downloads = db.session.query(QueuedDownload).filter(
             QueuedDownload.status != DownloadStatus.SUCCESS
         ).order_by(
-            QueuedDownload.status != DownloadStatus.ACTIVE, QueuedDownload.last_updated.desc(), QueuedDownload.id.asc()
+            QueuedDownload.status != DownloadStatus.ACTIVE, QueuedDownload.order.desc(), QueuedDownload.id.asc()
         ).limit(
             500
         ).all()
