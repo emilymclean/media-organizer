@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir -r media_organizer/requirements.txt
 # --- Python dependencies ---------------------------------------------------
 COPY ./server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install gunicorn
 
 # --- App code ----------------------------------------------------------
 COPY ./server/app.py .
@@ -37,6 +38,6 @@ RUN chmod +x /usr/local/bin/bootstrap.sh
 #            persist login sessions across container runs)
 RUN mkdir -p /library /config
 VOLUME ["/library", "/config"]
+EXPOSE 5000
 
 ENTRYPOINT ["/usr/local/bin/bootstrap.sh"]
-CMD ["run"]
