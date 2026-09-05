@@ -165,7 +165,11 @@ class TVDBProvider(MetadataProvider):
 
     def get_movie(self, provider_id: str) -> MovieMetadata:
         data = self._client.get_movie_extended(int(provider_id))
-        title = data.get("name") or _first_translated_name(data)
+        title = (
+                next((item.get("name") for item in data.get("aliases", []) if item.get("language") == "eng"))
+                or data.get("name")
+                or _first_translated_name(data)
+        )
         year = _extract_year(
             data.get("year")
             or (data.get("first_release") or {}).get("date")
@@ -174,14 +178,18 @@ class TVDBProvider(MetadataProvider):
 
     def get_show(self, provider_id: str) -> ShowMetadata:
         series = self._client.get_series_extended(int(provider_id))
-        title = series.get("name") or _first_translated_name(series)
+        title = (
+                next((item.get("name") for item in series.get("aliases", []) if item.get("language") == "eng"))
+                or series.get("name")
+                or _first_translated_name(series)
+        )
         year = _extract_year(series.get("firstAired"))
 
         show = ShowMetadata(title=title, year=year, provider_id=str(provider_id))
 
         page = 0
         while True:
-            info = self._client.get_series_episodes(int(provider_id), page=page)
+            info = self._client.get_series_episodes(int(provider_id), page=page, lang='eng')
             episodes = info.get("episodes") or []
             if not episodes:
                 break
@@ -208,8 +216,8 @@ def _extract_year(date_like) -> Optional[int]:
 
 
 def _first_translated_name(data: dict) -> str:
-    translations = data.get("nameTranslations") or []
-    return translations[0] if translations else data.get("slug", "Unknown Title")
+    translations = data.get("aliases") or []
+    return translations[0]["name"] if translations else data.get("slug", "Unknown Title")
 
 
 # Registry so new providers can be added and selected by name.
