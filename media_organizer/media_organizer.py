@@ -84,6 +84,8 @@ SUBTITLE_EXTENSIONS = {".srt", ".sub", ".ass", ".ssa", ".vtt"}
 
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
+LANG = "eng"
+
 
 def sanitize(name: str) -> str:
     """Strip characters that are illegal in file/folder names on common
@@ -165,8 +167,10 @@ class TVDBProvider(MetadataProvider):
 
     def get_movie(self, provider_id: str) -> MovieMetadata:
         data = self._client.get_movie_extended(int(provider_id))
+        translation = self._client.get_movie_translation(int(provider_id), lang=LANG)
         title = (
-                next((item.get("name") for item in data.get("aliases", []) if item.get("language") == "eng"), None)
+                translation.get("name")
+                or next((item.get("name") for item in data.get("aliases", []) if item.get("language") == LANG), None)
                 or data.get("name")
                 or _first_translated_name(data)
         )
@@ -178,8 +182,10 @@ class TVDBProvider(MetadataProvider):
 
     def get_show(self, provider_id: str) -> ShowMetadata:
         series = self._client.get_series_extended(int(provider_id))
+        translation = self._client.get_series_translation(int(provider_id), lang=LANG)
         title = (
-                next((item.get("name") for item in series.get("aliases", []) if item.get("language") == "eng"), None)
+                translation.get("name")
+                or next((item.get("name") for item in series.get("aliases", []) if item.get("language") == LANG), None)
                 or series.get("name")
                 or _first_translated_name(series)
         )
@@ -189,7 +195,7 @@ class TVDBProvider(MetadataProvider):
 
         page = 0
         while True:
-            info = self._client.get_series_episodes(int(provider_id), page=page, lang='eng')
+            info = self._client.get_series_episodes(int(provider_id), page=page, lang=LANG)
             episodes = info.get("episodes") or []
             if not episodes:
                 break
