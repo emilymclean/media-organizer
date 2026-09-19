@@ -63,6 +63,7 @@ import binascii
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -93,6 +94,16 @@ def sanitize(name: str) -> str:
     name = INVALID_FILENAME_CHARS.sub("", name)
     name = name.strip().rstrip(".")
     return name
+
+
+def file_world_readable(path: Path) -> None:
+    """Make a file group and world-readable if environment variable set."""
+    if os.environ.get("MAKE_FILES_WORLD_READABLE") != "1":
+        return
+
+    current_mode = os.stat(path).st_mode
+    new_mode = current_mode | stat.S_IRGRP | stat.S_IROTH
+    os.chmod(path, new_mode)
 
 
 # --------------------------------------------------------------------------
@@ -472,10 +483,12 @@ def organise_movie(video_files: list[Path], movie: MovieMetadata, library_root: 
     root_name = build_movie_root_name(movie)
     movie_dir = library_root / root_name
     movie_dir.mkdir(parents=True, exist_ok=True)
+    file_world_readable(movie_dir)
 
     dest_video = movie_dir / f"{root_name}{main_video.suffix.lower()}"
     shutil.copyfile(str(main_video), str(dest_video))
     os.remove(str(main_video))
+    file_world_readable(dest_video)
     print(f"  Movie -> {dest_video}")
 
     features_dir = library_root / root_name / "Featurettes"
@@ -484,6 +497,7 @@ def organise_movie(video_files: list[Path], movie: MovieMetadata, library_root: 
         dest_feature = features_dir / video.name
         shutil.copyfile(str(video), str(dest_feature))
         os.remove(str(video))
+        file_world_readable(dest_feature)
         print(f"  Feature {video.name} -> {dest_feature}")
 
     sub = find_companion_subtitle(main_video)
@@ -491,6 +505,7 @@ def organise_movie(video_files: list[Path], movie: MovieMetadata, library_root: 
         dest_sub = dest_video.with_suffix(sub.suffix.lower())
         shutil.copyfile(str(sub), str(dest_sub))
         os.remove(str(sub))
+        file_world_readable(dest_sub)
         print(f"  Subtitle -> {dest_sub}")
 
     return movie_dir
@@ -503,6 +518,7 @@ def organise_show(video_files: list[Path], show: ShowMetadata, library_root: Pat
     root_name = build_show_root_name(show)
     show_dir = library_root / root_name
     show_dir.mkdir(parents=True, exist_ok=True)
+    file_world_readable(show_dir)
 
     unmatched = []
     for video in video_files:
@@ -516,6 +532,7 @@ def organise_show(video_files: list[Path], show: ShowMetadata, library_root: Pat
 
         season_dir = show_dir / f"Season {season}"
         season_dir.mkdir(parents=True, exist_ok=True)
+        file_world_readable(season_dir)
 
         filename = sanitize(
             f"{show.title} - S{season:02d}E{episode:02d} - {ep_title}"
@@ -523,6 +540,7 @@ def organise_show(video_files: list[Path], show: ShowMetadata, library_root: Pat
         dest_video = season_dir / f"{filename}{video.suffix.lower()}"
         shutil.copyfile(str(video), str(dest_video))
         os.remove(str(video))
+        file_world_readable(dest_video)
         print(f"  S{season:02d}E{episode:02d} -> {dest_video}")
 
         sub = find_companion_subtitle(video)
@@ -530,6 +548,7 @@ def organise_show(video_files: list[Path], show: ShowMetadata, library_root: Pat
             dest_sub = dest_video.with_suffix(sub.suffix.lower())
             shutil.copyfile(str(sub), str(dest_sub))
             os.remove(str(sub))
+            file_world_readable(dest_sub)
             print(f"    Subtitle -> {dest_sub}")
 
     if unmatched:
