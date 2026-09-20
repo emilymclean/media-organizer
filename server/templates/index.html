@@ -84,7 +84,7 @@
     display: grid;
     grid-template-columns: 110px 1fr 160px auto;
     gap: 10px;
-    align-items: stretch;
+    align-items: start;
   }
 
   @media (max-width: 700px) {
@@ -100,7 +100,7 @@
 
   .field { display: flex; flex-direction: column; }
 
-  select, input[type="text"], input[type="url"] {
+  select, input[type="text"], input[type="url"], textarea {
     background: #101317;
     border: 1px solid var(--panel-border);
     border-radius: 6px;
@@ -111,12 +111,13 @@
     width: 100%;
   }
 
-  select:focus, input:focus {
+  select:focus, input:focus, textarea:focus {
     outline: none;
     border-color: var(--accent);
   }
 
-  input[type="url"] { font-family: var(--mono); font-size: 0.82rem; }
+  input[type="url"], textarea { font-family: var(--mono); font-size: 0.82rem; }
+  textarea { resize: vertical; min-height: 80px; }
 
   button {
     background: var(--accent);
@@ -284,9 +285,10 @@
           <option value="s">Show</option>
         </select>
       </div>
-      <div class="field">
-        <label for="mega_url">Mega.nz URL</label>
+      <div class="field" id="url-field-container">
+        <label for="mega_url" id="url-label">Mega.nz URL</label>
         <input type="url" id="mega_url" name="mega_url" placeholder="https://mega.nz/..." required>
+        <textarea id="mega_url_textarea" name="mega_url_textarea" placeholder="https://mega.nz/...&#10;https://mega.nz/..." style="display: none;"></textarea>
       </div>
       <div class="field">
         <label for="tvdb_id">TVDB ID</label>
@@ -312,6 +314,35 @@
   const form = document.getElementById('queue-form');
   const submitBtn = document.getElementById('submit-btn');
   const formMsg = document.getElementById('form-msg');
+  const modeSelect = document.getElementById('mode');
+  const megaUrlInput = document.getElementById('mega_url');
+  const megaUrlTextarea = document.getElementById('mega_url_textarea');
+  const urlLabel = document.getElementById('url-label');
+
+  function updateUrlFieldMode() {
+    const isShow = modeSelect.value === 's';
+    if (isShow) {
+      megaUrlInput.style.display = 'none';
+      megaUrlInput.removeAttribute('required');
+      megaUrlTextarea.style.display = '';
+      megaUrlTextarea.setAttribute('required', 'required');
+      urlLabel.textContent = 'Mega.nz URLs (one per line)';
+      if (megaUrlInput.value.trim() && !megaUrlTextarea.value.trim()) {
+        megaUrlTextarea.value = megaUrlInput.value.trim();
+      }
+    } else {
+      megaUrlTextarea.style.display = 'none';
+      megaUrlTextarea.removeAttribute('required');
+      megaUrlInput.style.display = '';
+      megaUrlInput.setAttribute('required', 'required');
+      urlLabel.textContent = 'Mega.nz URL';
+      if (megaUrlTextarea.value.trim() && !megaUrlInput.value.trim()) {
+        megaUrlInput.value = megaUrlTextarea.value.split('\n')[0].trim();
+      }
+    }
+  }
+
+  modeSelect.addEventListener('change', updateUrlFieldMode);
 
   const STATUS_LABELS = {
     queued: 'Queued',
@@ -438,9 +469,27 @@
     formMsg.textContent = '';
     formMsg.className = 'form-msg';
 
+    const mode = modeSelect.value;
+    let urls = [];
+    if (mode === 's') {
+      urls = megaUrlTextarea.value
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+    } else {
+      const val = megaUrlInput.value.trim();
+      if (val) urls = [val];
+    }
+
+    if (urls.length === 0) {
+      formMsg.textContent = 'Please enter at least one Mega.nz URL.';
+      formMsg.className = 'form-msg err';
+      return;
+    }
+
     const payload = {
-      mode: document.getElementById('mode').value,
-      mega_url: document.getElementById('mega_url').value.trim(),
+      mode: mode,
+      mega_url: urls,
       tvdb_id: document.getElementById('tvdb_id').value.trim()
     };
 
@@ -464,7 +513,8 @@
       formMsg.textContent = body.message || 'Added to queue.';
       formMsg.className = 'form-msg ok';
 
-      document.getElementById('mega_url').value = "";
+      megaUrlInput.value = "";
+      megaUrlTextarea.value = "";
       document.getElementById('tvdb_id').value = "";
 
       loadDownloads();

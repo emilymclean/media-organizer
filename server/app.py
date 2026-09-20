@@ -5,14 +5,15 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from time import sleep
-from typing import Annotated
+from typing import Annotated, Any
 
 import backoff
 from flask import Flask, request, jsonify, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from pydantic import BaseModel, ValidationError, AnyHttpUrl, AfterValidator
+from pydantic import BaseModel, ValidationError, AnyHttpUrl, AfterValidator, Field, field_validator, model_validator
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from media_organizer.media_organizer import mega_login, TVDBProvider, MediaRequest, fetch, MetadataProvider
@@ -94,10 +95,28 @@ class DownloadMode(str, Enum):
     SHOW = "s"
 
 
+MegaUrlType = Annotated[AnyHttpUrl, AfterValidator(validate_host)]
+
+
 class CreateQueuedDownloadRequest(BaseModel):
     mode: DownloadMode
-    mega_url: Annotated[AnyHttpUrl, AfterValidator(validate_host)]
+    mega_url: list[MegaUrlType] = Field(min_length=1)
     tvdb_id: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_urls_alias(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "mega_url" not in data and "mega_urls" in data:
+                data["mega_url"] = data["mega_urls"]
+        return data
+
+    @field_validator("mega_url", mode="before")
+    @classmethod
+    def ensure_list(cls, v: Any) -> Any:
+        if isinstance(v, (str, AnyHttpUrl)):
+            return [v]
+        return v
 
 
 @app.post("/api/download")
@@ -107,14 +126,23 @@ def queue():
     except ValidationError as error:
         return jsonify(error.errors()), 400
 
-    with db.session.begin():
-        db.session.add(QueuedDownload(
-            mode=data["mode"],
-            tvdb_id=data["tvdb_id"],
-            mega_url=str(data["mega_url"])
-        ))
+    urls = list(dict.fromkeys(str(url) for url in data["mega_url"]))
 
-    return jsonify({"message": "Download queued successfully"}), 201
+    count = 0
+    try:
+        with db.session.begin():
+            for url in urls:
+                db.session.add(QueuedDownload(
+                    mode=data["mode"],
+                    tvdb_id=data["tvdb_id"],
+                    mega_url=url
+                ))
+                count += 1
+    except IntegrityError:
+        return jsonify({"message": "One or more of the specified URLs are already in the queue"}), 400
+
+    msg = "Download queued successfully" if count == 1 else f"{count} downloads queued successfully"
+    return jsonify({"message": msg}), 201
 
 
 @dataclass
