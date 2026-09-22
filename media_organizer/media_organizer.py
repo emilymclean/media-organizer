@@ -515,6 +515,8 @@ def organise_show(video_files: list[Path], show: ShowMetadata, library_root: Pat
     if not video_files:
         raise RuntimeError("No video files found in the downloaded content.")
 
+    sort_unmatched = os.environ.get("SORT_UNMATCHED", "1") == "1"
+
     root_name = build_show_root_name(show)
     show_dir = library_root / root_name
     show_dir.mkdir(parents=True, exist_ok=True)
@@ -524,6 +526,16 @@ def organise_show(video_files: list[Path], show: ShowMetadata, library_root: Pat
     for video in video_files:
         parsed = parse_season_episode(video.name)
         if not parsed:
+            if sort_unmatched:
+                unmatched_dir = show_dir / "Unmatched"
+                unmatched_dir.mkdir(parents=True, exist_ok=True)
+                file_world_readable(unmatched_dir)
+
+                unmatched_file = unmatched_dir / video.name
+                shutil.copyfile(str(video), str(unmatched_file))
+                os.remove(str(video))
+                file_world_readable(unmatched_file)
+
             unmatched.append(video)
             continue
 
